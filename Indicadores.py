@@ -3,89 +3,84 @@ from O365 import Account
 import pandas as pd
 import plotly.express as px
 
-# Configuración de página para móvil
 st.set_page_config(page_title="COAM Indicadores", layout="wide")
 
 def get_data():
     try:
         credentials = (st.secrets["sharepoint"]["client_id"], 
                        st.secrets["sharepoint"]["client_secret"])
-        
-        account = Account(credentials, 
-                         auth_flow_type='credentials', 
+        account = Account(credentials, auth_flow_type='credentials', 
                          tenant_id=st.secrets["sharepoint"]["tenant_id"])
         
         if account.authenticate():
             site = account.sharepoint().get_site(st.secrets["sharepoint"]["site_url"])
             sp_list = site.get_list_by_name(st.secrets["sharepoint"]["list_name"])
             items = sp_list.get_items() 
-            
             data = [item.fields for item in items]
             return pd.DataFrame(data) if data else pd.DataFrame()
     except Exception as e:
-        st.error(f"Error técnico de conexión: {e}")
+        st.error(f"Error de conexión: {e}")
     return None
 
 st.title("📊 Panel de Control COAM")
 
-# Botón actualizado a la sintaxis 2026 (width='stretch')
 if st.button("🔄 ACTUALIZAR REPORTES", width='stretch'):
-    with st.spinner("Buscando datos en SharePoint..."):
-        df_raw = get_data()
-        
-        if df_raw is not None and not df_raw.empty:
-            df = df_raw.copy()
-            df.columns = [str(c) for c in df.columns]
+    status = st.empty() # Espacio para mensajes de estado
+    status.info("🔍 Conectando con SharePoint...")
+    
+    df_raw = get_data()
+    
+    if df_raw is not None and not df_raw.empty:
+        status.info("✅ Datos recibidos. Procesando columnas...")
+        df = df_raw.copy()
+        df.columns = [str(c) for c in df.columns]
 
-            # Detección inteligente de columnas
-            col_fecha = next((c for c in df.columns if 'Created' in c or 'Modified' in c), None)
-            col_gas = next((c for c in df.columns if 'ConsumoDeclarado' in c), None)
-            col_agua = next((c for c in df.columns if 'Agua_Consumo' in c), None)
+        # Identificación flexible de columnas
+        col_fecha = next((c for c in df.columns if 'Created' in c or 'Modified' in c), None)
+        col_gas = next((c for c in df.columns if 'ConsumoDeclarado' in c), None)
+        col_agua = next((c for c in df.columns if 'Agua_Consumo' in c), None)
 
-            # Procesamiento de Fecha
-            if col_fecha:
-                df['Fecha_Limpia'] = pd.to_datetime(df[col_fecha], errors='coerce').dt.date
-                df = df.sort_values('Fecha_Limpia')
-            else:
-                df['Fecha_Limpia'] = range(len(df))
-
-            # Procesamiento de Números
-            for c in [col_gas, col_agua]:
-                if c:
-                    df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0)
-
-            # --- RENDERIZADO ---
-            tab1, tab2 = st.tabs(["📈 Gráficos Diarios", "📋 Tabla de Datos"])
-
-            with tab1:
-                # Gráfico Combustible
-                st.subheader("⛽ Consumo de Combustible")
-                if col_gas:
-                    fig1 = px.bar(df, x='Fecha_Limpia', y=col_gas, 
-                                 color_discrete_sequence=['#EF553B'],
-                                 labels={'Fecha_Limpia': 'Día', col_gas: 'Cantidad'})
-                    st.plotly_chart(fig1, on_select="ignore")
-                else:
-                    st.warning("No se encontró la columna de Combustible.")
-
-                # Gráfico Agua
-                st.subheader("💧 Consumo de Agua")
-                if col_agua:
-                    fig2 = px.line(df, x='Fecha_Limpia', y=col_agua, 
-                                  markers=True,
-                                  labels={'Fecha_Limpia': 'Día', col_agua: 'm³'})
-                    st.plotly_chart(fig2, on_select="ignore")
-                else:
-                    st.warning("No se encontró la columna de Agua.")
-
-            with tab2:
-                st.subheader("Detalle de Registros")
-                cols_view = [c for c in [col_fecha, col_gas, col_agua] if c is not None]
-                # Tabla actualizada a la sintaxis 2026
-                st.dataframe(df[cols_view], width='stretch')
-
+        # Procesar Fecha
+        if col_fecha:
+            df['Fecha_Limpia'] = pd.to_datetime(df[col_fecha], errors='coerce').dt.date
+            df = df.sort_values('Fecha_Limpia')
         else:
-            st.warning("Conectado, pero la lista parece estar vacía.")
+            df['Fecha_Limpia'] = "Sin Fecha"
+
+        # Procesar Números
+        for c in [col_gas, col_agua]:
+            if c:
+                df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0)
+
+        status.empty() # Limpiar mensaje de estado
+
+        # --- MOSTRAR RESULTADOS ---
+        # 1. KPIs Rápidos arriba
+        kpi1, kpi2 = st.columns(2)
+        if col_gas:
+            kpi1.metric("Total Combustible", f"{df[col_gas].sum():,.2f}")
+        if col_agua:
+            kpi2.metric("Total Agua", f"{df[col_agua].sum():,.2f} m³")
+
+        # 2. Gráficos en pestañas
+        t1, t2 = st.tabs(["📈 Gráficos", "📋 Tabla Completa"])
+        
+        with t1:
+            if col_gas:
+                st.subheader("⛽ Consumo de Combustible")
+                st.plotly_chart(px.bar(df, x='Fecha_Limpia', y=col_gas, color_discrete_sequence=['#EF553B']), width='stretch')
+            
+            if col_agua:
+                st.subheader("💧 Consumo de Agua")
+                st.plotly_chart(px.line(df, x='Fecha_Limpia', y=col_agua, markers=True), width='stretch')
+
+        with t2:
+            st.dataframe(df, width='stretch')
+            
+    elif df_raw is not None and df_raw.empty:
+        status.warning("⚠️ La lista de SharePoint está conectada pero no tiene filas.")
+    else:
+        status.error("❌ No se pudo obtener información.")
 
 st.divider()
-st.caption("COAM - Generado automáticamente desde SharePoint")
+st.caption("COAM Perú - 2026")
