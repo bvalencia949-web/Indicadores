@@ -37,8 +37,8 @@ if st.button("🔄 ACTUALIZAR DATOS Y GRÁFICOS", use_container_width=True):
             
             # --- CONFIGURACIÓN DE CONSUMOS ---
             # IMPORTANTE: Cambia estos nombres por los que aparezcan en la lista de arriba
-            col_gasolina = 'Combustible' 
-            col_agua = 'Agua'
+            col_gasolina = 'ConsumoDeclarado' 
+            col_agua = 'Agua_Consumo'
 
             # Convertir a números
             for c in [col_gasolina, col_agua]:
@@ -69,3 +69,4 @@ if st.button("🔄 ACTUALIZAR DATOS Y GRÁFICOS", use_container_width=True):
             st.dataframe(df)
         else:
             st.error("No se encontraron datos.")
+
