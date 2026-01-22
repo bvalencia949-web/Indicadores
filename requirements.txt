@@ -2,3 +2,4 @@ streamlit>=1.41.0
 pandas
 O365
 altair>=5.0.0
+plotly
