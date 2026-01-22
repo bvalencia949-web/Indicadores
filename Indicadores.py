@@ -20,50 +20,41 @@ def get_data():
             sp_list = site.get_list_by_name(st.secrets["sharepoint"]["list_name"])
             items = sp_list.get_items() 
             
-            # Extraemos los campos de cada fila
             data = [item.fields for item in items]
-            
-            if not data:
-                return pd.DataFrame()
-                
-            return pd.DataFrame(data)
+            return pd.DataFrame(data) if data else pd.DataFrame()
     except Exception as e:
         st.error(f"Error técnico de conexión: {e}")
     return None
 
 st.title("📊 Panel de Control COAM")
 
-if st.button("🔄 ACTUALIZAR REPORTES", use_container_width=True):
+# Botón actualizado a la sintaxis 2026 (width='stretch')
+if st.button("🔄 ACTUALIZAR REPORTES", width='stretch'):
     with st.spinner("Buscando datos en SharePoint..."):
         df_raw = get_data()
         
         if df_raw is not None and not df_raw.empty:
-            # --- LIMPIEZA DE COLUMNAS (Para evitar el TypeError) ---
             df = df_raw.copy()
-            # Aseguramos que todos los nombres de columnas sean strings y sin espacios
             df.columns = [str(c) for c in df.columns]
 
-            # --- IDENTIFICACIÓN DE COLUMNAS ---
-            # Buscamos coincidencias aunque el nombre interno sea distinto
+            # Detección inteligente de columnas
             col_fecha = next((c for c in df.columns if 'Created' in c or 'Modified' in c), None)
             col_gas = next((c for c in df.columns if 'ConsumoDeclarado' in c), None)
             col_agua = next((c for c in df.columns if 'Agua_Consumo' in c), None)
 
-            # --- PROCESAMIENTO ---
-            # 1. Fecha
+            # Procesamiento de Fecha
             if col_fecha:
                 df['Fecha_Limpia'] = pd.to_datetime(df[col_fecha], errors='coerce').dt.date
                 df = df.sort_values('Fecha_Limpia')
             else:
-                # Si no hay columna de sistema, creamos una ficticia para que no rompa el gráfico
                 df['Fecha_Limpia'] = range(len(df))
 
-            # 2. Números
+            # Procesamiento de Números
             for c in [col_gas, col_agua]:
                 if c:
                     df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0)
 
-            # --- INTERFAZ ---
+            # --- RENDERIZADO ---
             tab1, tab2 = st.tabs(["📈 Gráficos Diarios", "📋 Tabla de Datos"])
 
             with tab1:
@@ -72,8 +63,8 @@ if st.button("🔄 ACTUALIZAR REPORTES", use_container_width=True):
                 if col_gas:
                     fig1 = px.bar(df, x='Fecha_Limpia', y=col_gas, 
                                  color_discrete_sequence=['#EF553B'],
-                                 labels={'Fecha_Limpia': 'Día', col_gas: 'Consumo'})
-                    st.plotly_chart(fig1, use_container_width=True)
+                                 labels={'Fecha_Limpia': 'Día', col_gas: 'Cantidad'})
+                    st.plotly_chart(fig1, on_select="ignore")
                 else:
                     st.warning("No se encontró la columna de Combustible.")
 
@@ -83,15 +74,15 @@ if st.button("🔄 ACTUALIZAR REPORTES", use_container_width=True):
                     fig2 = px.line(df, x='Fecha_Limpia', y=col_agua, 
                                   markers=True,
                                   labels={'Fecha_Limpia': 'Día', col_agua: 'm³'})
-                    st.plotly_chart(fig2, use_container_width=True)
+                    st.plotly_chart(fig2, on_select="ignore")
                 else:
                     st.warning("No se encontró la columna de Agua.")
 
             with tab2:
                 st.subheader("Detalle de Registros")
-                # Mostrar solo columnas útiles
                 cols_view = [c for c in [col_fecha, col_gas, col_agua] if c is not None]
-                st.dataframe(df[cols_view], use_container_width=True)
+                # Tabla actualizada a la sintaxis 2026
+                st.dataframe(df[cols_view], width='stretch')
 
         else:
             st.warning("Conectado, pero la lista parece estar vacía.")
