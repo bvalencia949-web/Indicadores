@@ -15,8 +15,18 @@ def get_data():
         if account.authenticate():
             site = account.sharepoint().get_site(st.secrets["sharepoint"]["site_url"])
             sp_list = site.get_list_by_name(st.secrets["sharepoint"]["list_name"])
-            items = sp_list.get_items() 
-            data = [item.fields for item in items]
+            
+            # FORZAMOS la carga de campos específicos para evitar el "None"
+            # SharePoint requiere a veces expandir los campos de la lista
+            query = sp_list.new_query()
+            items = sp_list.get_items(query=query) 
+            
+            # Recolectamos datos asegurando que leemos el diccionario 'fields'
+            data = []
+            for item in items:
+                # Accedemos directamente a la propiedad fields del objeto item
+                data.append(item.fields)
+            
             return pd.DataFrame(data) if data else pd.DataFrame()
     except Exception as e:
         st.error(f"Error de conexión: {e}")
@@ -25,62 +35,56 @@ def get_data():
 st.title("📊 Panel de Control COAM")
 
 if st.button("🔄 ACTUALIZAR REPORTES", width='stretch'):
-    status = st.empty() # Espacio para mensajes de estado
-    status.info("🔍 Conectando con SharePoint...")
-    
-    df_raw = get_data()
-    
-    if df_raw is not None and not df_raw.empty:
-        status.info("✅ Datos recibidos. Procesando columnas...")
-        df = df_raw.copy()
-        df.columns = [str(c) for c in df.columns]
-
-        # Identificación flexible de columnas
-        col_fecha = next((c for c in df.columns if 'Created' in c or 'Modified' in c), None)
-        col_gas = next((c for c in df.columns if 'ConsumoDeclarado' in c), None)
-        col_agua = next((c for c in df.columns if 'Agua_Consumo' in c), None)
-
-        # Procesar Fecha
-        if col_fecha:
-            df['Fecha_Limpia'] = pd.to_datetime(df[col_fecha], errors='coerce').dt.date
-            df = df.sort_values('Fecha_Limpia')
-        else:
-            df['Fecha_Limpia'] = "Sin Fecha"
-
-        # Procesar Números
-        for c in [col_gas, col_agua]:
-            if c:
-                df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0)
-
-        status.empty() # Limpiar mensaje de estado
-
-        # --- MOSTRAR RESULTADOS ---
-        # 1. KPIs Rápidos arriba
-        kpi1, kpi2 = st.columns(2)
-        if col_gas:
-            kpi1.metric("Total Combustible", f"{df[col_gas].sum():,.2f}")
-        if col_agua:
-            kpi2.metric("Total Agua", f"{df[col_agua].sum():,.2f} m³")
-
-        # 2. Gráficos en pestañas
-        t1, t2 = st.tabs(["📈 Gráficos", "📋 Tabla Completa"])
+    with st.spinner("Sincronizando datos..."):
+        df_raw = get_data()
         
-        with t1:
-            if col_gas:
-                st.subheader("⛽ Consumo de Combustible")
-                st.plotly_chart(px.bar(df, x='Fecha_Limpia', y=col_gas, color_discrete_sequence=['#EF553B']), width='stretch')
+        if df_raw is not None and not df_raw.empty:
+            df = df_raw.copy()
             
-            if col_agua:
-                st.subheader("💧 Consumo de Agua")
-                st.plotly_chart(px.line(df, x='Fecha_Limpia', y=col_agua, markers=True), width='stretch')
+            # Nombres exactos de tus columnas en SharePoint
+            c_fuel = 'ConsumoDeclarado'
+            c_water = 'Agua_Consumo'
+            c_date = 'Created'
 
-        with t2:
-            st.dataframe(df, width='stretch')
+            # 1. Procesar Fecha (Si Created viene null, usamos la fecha actual como respaldo)
+            if c_date in df.columns:
+                df['Fecha_Limpia'] = pd.to_datetime(df[c_date], errors='coerce').dt.date
+            else:
+                df['Fecha_Limpia'] = pd.Timestamp.now().date()
             
-    elif df_raw is not None and df_raw.empty:
-        status.warning("⚠️ La lista de SharePoint está conectada pero no tiene filas.")
-    else:
-        status.error("❌ No se pudo obtener información.")
+            # 2. Procesar Números (Convertir los 'None' en 0)
+            for c in [c_fuel, c_water]:
+                if c in df.columns:
+                    df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0)
+                else:
+                    df[c] = 0.0
+
+            df = df.sort_values('Fecha_Limpia')
+
+            # --- VISTA DE PANELES ---
+            t1, t2 = st.tabs(["📈 Gráficos", "📋 Tabla de Datos"])
+            
+            with t1:
+                # Combustible
+                fig_f = px.bar(df, x='Fecha_Limpia', y=c_fuel, 
+                              title="⛽ Consumo Diario de Combustible",
+                              color_discrete_sequence=['#EF553B'],
+                              labels={'Fecha_Limpia': 'Día', c_fuel: 'Cantidad'})
+                st.plotly_chart(fig_f, width='stretch')
+                
+                # Agua
+                fig_w = px.line(df, x='Fecha_Limpia', y=c_water, 
+                               title="💧 Consumo Diario de Agua",
+                               markers=True,
+                               labels={'Fecha_Limpia': 'Día', c_water: 'm³'})
+                st.plotly_chart(fig_w, width='stretch')
+
+            with t2:
+                # Mostramos la tabla con los datos ya procesados (sin nulls)
+                cols_to_show = [col for col in ['Fecha_Limpia', c_fuel, c_water] if col in df.columns]
+                st.dataframe(df[cols_to_show], width='stretch')
+        else:
+            st.warning("No se encontraron datos. Verifica que la lista tenga registros con valores.")
 
 st.divider()
-st.caption("COAM Perú - 2026")
+st.caption("COAM Perú - Sistema Automatizado")
