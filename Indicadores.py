@@ -19,41 +19,53 @@ def get_data():
 
 st.title("📊 Control de Consumos COAM")
 
-if st.button("🔄 ACTUALIZAR GRÁFICOS", use_container_width=True):
-    with st.spinner("Procesando datos..."):
-        df_raw = get_data()
+if st.button("🔄 ACTUALIZAR DATOS Y GRÁFICOS", use_container_width=True):
+    with st.spinner("Conectando con SharePoint..."):
+        df = get_data()
         
-        if df_raw is not None and not df_raw.empty:
-            # --- LIMPIEZA DE DATOS (Ajusta los nombres de columnas si son distintos) ---
-            df = df_raw.copy()
+        if df is not None and not df.empty:
+            # --- DIAGNÓSTICO DE COLUMNAS ---
+            # Esto te ayudará a ver cómo se llaman realmente tus columnas
+            st.write("### 🔍 Columnas detectadas:", list(df.columns))
             
-            # 1. Convertir fecha (Ajusta 'Created' por el nombre de tu columna de fecha si tienes una)
-            df['Fecha'] = pd.to_datetime(df['Created']).dt.date
+            # Intentamos detectar la fecha (SharePoint suele usar 'AuthorLookupId' o 'Modified')
+            # Si 'Created' falló, buscaremos una alternativa común
+            col_fecha = 'Created' if 'Created' in df.columns else (df.columns[0] if len(df.columns) > 0 else None)
             
-            # 2. Convertir consumos a números (Reemplaza con los nombres exactos de tus columnas)
-            # Si tus columnas se llaman distinto, cambia 'Combustible' y 'Agua' abajo:
-            columnas_consumo = ['Combustible', 'Agua'] 
-            for col in columnas_consumo:
-                if col in df.columns:
-                    df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+            if col_fecha:
+                df['Fecha_Limpia'] = pd.to_datetime(df[col_fecha], errors='coerce').dt.date
+            
+            # --- CONFIGURACIÓN DE CONSUMOS ---
+            # IMPORTANTE: Cambia estos nombres por los que aparezcan en la lista de arriba
+            col_gasolina = 'Combustible' 
+            col_agua = 'Agua'
 
-            # --- VISUALIZACIÓN ---
-            col1, col2 = st.columns(2)
+            # Convertir a números
+            for c in [col_gasolina, col_agua]:
+                if c in df.columns:
+                    df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0)
 
-            with col1:
+            # --- GRÁFICOS ---
+            c1, c2 = st.columns(2)
+            
+            with c1:
                 st.subheader("⛽ Consumo de Combustible")
-                if 'Combustible' in df.columns:
-                    fig_fuel = px.bar(df, x='Fecha', y='Combustible', color_discrete_sequence=['#EF553B'])
-                    st.plotly_chart(fig_fuel, use_container_width=True)
+                if col_gasolina in df.columns:
+                    fig1 = px.bar(df, x='Fecha_Limpia', y=col_gasolina, color_discrete_sequence=['#EF553B'])
+                    st.plotly_chart(fig1, use_container_width=True)
+                else:
+                    st.warning(f"No se encontró la columna '{col_gasolina}'")
 
-            with col2:
+            with c2:
                 st.subheader("💧 Consumo de Agua")
-                if 'Agua' in df.columns:
-                    fig_water = px.line(df, x='Fecha', y='Agua', markers=True)
-                    st.plotly_chart(fig_water, use_container_width=True)
+                if col_agua in df.columns:
+                    fig2 = px.line(df, x='Fecha_Limpia', y=col_agua, markers=True)
+                    st.plotly_chart(fig2, use_container_width=True)
+                else:
+                    st.warning(f"No se encontró la columna '{col_agua}'")
 
             st.divider()
-            st.subheader("📋 Datos Detallados")
-            st.dataframe(df, use_container_width=True)
+            st.subheader("📋 Tabla Completa")
+            st.dataframe(df)
         else:
-            st.error("No se pudieron cargar los datos.")
+            st.error("No se encontraron datos.")
