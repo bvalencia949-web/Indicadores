@@ -1,0 +1,3 @@
+O365
+pandas
+streamlit
